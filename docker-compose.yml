@@ -1,0 +1,50 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ethereum-sepolia-indexer-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/blockchain_indexer?schema=public
+      ETHEREUM_RPC_URL: ${DOCKER_ETHEREUM_RPC_URL:-https://sepolia.infura.io/v3/YOUR_API_KEY}
+      INDEXER_NETWORK: ${INDEXER_NETWORK:-sepolia}
+      INDEXER_ENABLED: ${DOCKER_INDEXER_ENABLED:-false}
+      INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-1000}
+      INDEXER_CONFIRMATIONS: ${INDEXER_CONFIRMATIONS:-2}
+      INDEXER_POLL_INTERVAL_MS: ${INDEXER_POLL_INTERVAL_MS:-12000}
+      CONTRACT_BOOTSTRAP_CONFIG: ${CONTRACT_BOOTSTRAP_CONFIG:-}
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - app_node_modules:/app/node_modules
+    command: sh -c "npm run prisma:generate && npm run dev"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ethereum-sepolia-indexer-postgres
+    environment:
+      POSTGRES_DB: blockchain_indexer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database:/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d blockchain_indexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  app_node_modules:
+  postgres_data:

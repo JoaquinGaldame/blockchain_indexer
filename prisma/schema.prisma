@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Contract {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  address        String
+  network        String
+  chainId        Int             @map("chain_id")
+  abiJson        Json            @map("abi_json")
+  startBlock     BigInt          @map("start_block")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  contractEvents ContractEvent[]
+  indexedEvents  IndexedEvent[]
+  syncState      SyncState?
+
+  @@unique([network, address], map: "contracts_network_address_key")
+  @@index([network, isActive], map: "contracts_active_network_idx")
+  @@map("contracts")
+}
+
+model ContractEvent {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contractId    String         @map("contract_id") @db.Uuid
+  eventName     String         @map("event_name")
+  topic0        String?
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  contract      Contract       @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  indexedEvents IndexedEvent[]
+
+  @@unique([contractId, eventName], map: "contract_events_contract_event_name_key")
+  @@index([contractId, isActive], map: "contract_events_active_contract_idx")
+  @@map("contract_events")
+}
+
+model IndexedEvent {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contractId       String             @map("contract_id") @db.Uuid
+  contractEventId  String?            @map("contract_event_id") @db.Uuid
+  eventName        String             @map("event_name")
+  txHash           String             @map("tx_hash")
+  blockNumber      BigInt             @map("block_number")
+  blockHash        String             @map("block_hash")
+  logIndex         Int                @map("log_index")
+  transactionIndex Int?               @map("transaction_index")
+  contractAddress  String             @map("contract_address")
+  argsJson         Json               @default("{}") @map("args_json")
+  decodedJson      Json               @default("{}") @map("decoded_json")
+  removed          Boolean            @default(false)
+  processedAt      DateTime           @default(now()) @map("processed_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  contract         Contract           @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  contractEvent    ContractEvent?     @relation(fields: [contractEventId], references: [id], onDelete: SetNull)
+  participants     EventParticipant[]
+
+  @@unique([contractId, txHash, logIndex], map: "indexed_events_unique_log_key")
+  @@index([contractId, blockNumber, logIndex], map: "indexed_events_contract_block_idx")
+  @@index([contractEventId, blockNumber], map: "indexed_events_contract_event_block_idx")
+  @@index([txHash], map: "indexed_events_tx_hash_idx")
+  @@index([eventName, blockNumber], map: "indexed_events_event_name_block_idx")
+  @@map("indexed_events")
+}
+
+model SyncState {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contractId          String     @unique(map: "sync_states_contract_key") @map("contract_id") @db.Uuid
+  lastSyncedBlock     BigInt     @map("last_synced_block")
+  lastSyncedBlockHash String?    @map("last_synced_block_hash")
+  status              SyncStatus @default(IDLE)
+  lastError           String?    @map("last_error")
+  updatedAt           DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  contract            Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([status], map: "sync_states_status_idx")
+  @@map("sync_states")
+}
+
+model WalletAddress {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  network       String
+  address       String
+  firstSeenAt   DateTime           @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt    DateTime           @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  participations EventParticipant[]
+
+  @@unique([network, address], map: "wallet_addresses_network_address_key")
+  @@index([address], map: "wallet_addresses_address_idx")
+  @@map("wallet_addresses")
+}
+
+model EventParticipant {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  indexedEventId  String        @map("indexed_event_id") @db.Uuid
+  walletAddressId String        @map("wallet_address_id") @db.Uuid
+  role            String
+  argName         String?       @map("arg_name")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  indexedEvent    IndexedEvent  @relation(fields: [indexedEventId], references: [id], onDelete: Cascade)
+  walletAddress   WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Restrict)
+
+  @@index([indexedEventId], map: "event_participants_event_idx")
+  @@index([walletAddressId], map: "event_participants_wallet_idx")
+  @@map("event_participants")
+}
+
+enum SyncStatus {
+  IDLE
+  SYNCING
+  LIVE
+  ERROR
+
+  @@map("sync_status")
+}
